@@ -3,8 +3,8 @@
  * Auth Controller (Memberstack SDK Integration & Supabase Profile Mapping)
  */
 const JoeBuildsAuth = (() => {
-  const SUPABASE_URL = 'https://YOUR_SUPABASE_PROJECT.supabase.co';
-  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+  const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcXlmaXdrYnV2dWFqd3piamhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MzY0MDEsImV4cCI6MjA5NzIxMjQwMX0.F315XwWSxPHEoCjQ14VDfpLBSbH9poN94fMyBGXUehE';
   let supabase;
 
   const DOM = {
