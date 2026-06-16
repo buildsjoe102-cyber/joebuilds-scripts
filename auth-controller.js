@@ -73,7 +73,6 @@ const JoeBuildsAuth = (() => {
           const email = DOM.loginEmail.value;
           const password = DOM.loginPassword.value;
           
-          // CORRECTED v2 LOGIN METHOD
           await window.$memberstackDom.loginMemberEmailPassword({ email, password });
           
           window.location.href = '/dashboard';
@@ -99,11 +98,10 @@ const JoeBuildsAuth = (() => {
           const password = DOM.signUpPassword.value;
           const name = DOM.signUpUser.value;
 
-          // CORRECTED v2 SIGNUP METHOD
           const member = await window.$memberstackDom.signupMemberEmailPassword({
             email, 
             password,
-            customFields: { first_name: name }
+            customFields: { "first-name": name } // <--- Corrected ID here
           });
 
           // Create the Supabase Profile Map
@@ -135,10 +133,9 @@ const JoeBuildsAuth = (() => {
         try {
           const email = DOM.forgotEmail.value;
           
-          // CORRECTED v2 PASSWORD RESET METHOD
           await window.$memberstackDom.sendMemberResetPasswordEmail({ email });
           
-          DOM.forgotError.style.color = '#3A6B48'; // Success Green
+          DOM.forgotError.style.color = '#3A6B48'; 
           DOM.forgotError.textContent = "Recovery link sent to your email inbox.";
           DOM.forgotError.classList.remove('jb-hidden');
           
