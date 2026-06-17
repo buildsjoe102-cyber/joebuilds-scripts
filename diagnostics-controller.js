@@ -134,7 +134,10 @@ const JoeBuildsDiagnostics = (() => {
         const diagnosticsData = await fetchDiagnosticsData(profile.building_id);
         mapToDOM(diagnosticsData);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
