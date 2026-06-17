@@ -126,7 +126,10 @@ const JoeBuildsReports = (() => {
         renderReports(pageData.reports);
         renderCalendarAndAgenda(pageData.events);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
