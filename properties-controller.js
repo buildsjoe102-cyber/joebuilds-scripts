@@ -32,10 +32,22 @@ const JoeBuildsProperties = (() => {
   const authenticateOperator = async () => {
     const member = await window.$memberstackDom.getCurrentMember();
     if (!member || !member.data) throw new Error("No session.");
+    
     const { data: profile } = await supabase.from('profiles').select('id, role').eq('memberstack_id', member.data.id).single();
-    if (profile.role === 'client' || profile.role === 'demo') { window.location.href = '/dashboard'; return null; }
+    
+    // Kick out clients
+    if (profile.role === 'client' || profile.role === 'demo') { 
+      window.location.href = '/dashboard'; 
+      return null; 
+    }
+    
     if (DOM.opLabel) DOM.opLabel.textContent = member.data.customFields?.first_name || 'Operator';
     if (DOM.opEmail) DOM.opEmail.textContent = `Logged in as: ${member.data.auth.email}`;
+    
+    // GLOBAL NAV FIX: Un-hide the restricted links because this is an Operator/Admin
+    const hideStyle = document.getElementById('rbac-hide-admin');
+    if (hideStyle) hideStyle.remove();
+
     return profile;
   };
 
