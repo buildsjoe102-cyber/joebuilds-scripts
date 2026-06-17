@@ -137,7 +137,10 @@ const JoeBuildsDigitalTwin = (() => {
         const twinData = await fetchTwinData(profile.building_id);
         renderDashboard(twinData);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
