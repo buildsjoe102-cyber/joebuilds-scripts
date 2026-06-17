@@ -132,7 +132,13 @@ const JoeBuildsProperties = (() => {
     bindUIEvents();
     if (!window.supabase) return;
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    try { const profile = await authenticateOperator(); if (profile) await fetchAndRenderBuildings(); } catch (error) {}
+    try { 
+      const profile = await authenticateOperator(); 
+      if (profile) await fetchAndRenderBuildings(); 
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
