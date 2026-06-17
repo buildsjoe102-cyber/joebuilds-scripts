@@ -101,7 +101,10 @@ const JoeBuildsPathway = (() => {
         const pathwayData = await fetchPathwayData(profile.building_id);
         populatePathwayUI(pathwayData);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
