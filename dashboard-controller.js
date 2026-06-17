@@ -1,6 +1,6 @@
 /**
  * Joe Builds Home Intelligence Platform
- * Unified Dashboard Controller (Auth, Data, & UI)
+ * Unified Dashboard Controller
  */
 const JoeBuildsDashboard = (() => {
   const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
@@ -46,13 +46,11 @@ const JoeBuildsDashboard = (() => {
         DOM.opMenu.classList.add('jb-hidden');
       });
     }
-
     if (DOM.logoutBtn) {
       DOM.logoutBtn.addEventListener('click', async () => {
         try { await window.$memberstackDom.logout(); window.location.href = '/login'; } catch (err) {}
       });
     }
-
     DOM.metricCards.forEach(card => {
       card.addEventListener('click', () => {
         DOM.mTitle.textContent = card.getAttribute('data-title');
@@ -69,7 +67,6 @@ const JoeBuildsDashboard = (() => {
         DOM.modal.classList.remove('jb-hidden');
       });
     });
-
     DOM.closeBtns.forEach(btn => { if (btn) btn.addEventListener('click', () => DOM.modal.classList.add('jb-hidden')); });
     if(DOM.modal) DOM.modal.addEventListener('click', (e) => { if (e.target === DOM.modal) DOM.modal.classList.add('jb-hidden'); });
   };
@@ -95,15 +92,11 @@ const JoeBuildsDashboard = (() => {
 
   const populateDashboard = (data) => {
     if (!data.building) return;
-    if (DOM.modalForensicBtn && DOM.modalForensicBtn.textContent.includes('Forensic')) {
-      DOM.modalForensicBtn.textContent = 'Open Diagnostic Record';
-    }
+    if (DOM.modalForensicBtn && DOM.modalForensicBtn.textContent.includes('Forensic')) DOM.modalForensicBtn.textContent = 'Open Diagnostic Record';
     const assetName = `${data.currentProject?.project_code || 'PRJ-000'} — ${data.building.address_line_1}`;
     if (DOM.footerProject) DOM.footerProject.textContent = assetName;
     if (DOM.desktopAsset) DOM.desktopAsset.textContent = assetName;
-    if (DOM.heroProjectDate && data.latestDiagnostic) {
-      DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
-    }
+    if (DOM.heroProjectDate && data.latestDiagnostic) DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
 
     const moistureData = data.measurements?.find(m => m.measurement_points?.element_code === 'MOISTURE');
     if (moistureData) {
@@ -148,11 +141,12 @@ const JoeBuildsDashboard = (() => {
         const dashboardData = await fetchData(profile.building_id);
         populateDashboard(dashboardData);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', JoeBuildsDashboard.init);
-} else { JoeBuildsDashboard.init(); }
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', JoeBuildsDashboard.init); } else { JoeBuildsDashboard.init(); }
