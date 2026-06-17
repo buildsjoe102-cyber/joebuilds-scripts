@@ -54,9 +54,10 @@ const JoeBuildsDigitalTwin = (() => {
     
     const { data: profile } = await supabase.from('profiles').select('id, building_id, role').eq('memberstack_id', member.data.id).single();
     
-    // NEW CODE: Hide Admin and Properties links for Clients/Demo users
-    if (profile && (profile.role === 'client' || profile.role === 'demo')) {
-      document.querySelectorAll('a[href="/properties"], a[href="/admin"]').forEach(el => el.classList.add('jb-hidden'));
+    // NEW CODE: Reveal Admin and Properties links ONLY for Operators/Admins
+    if (profile && (profile.role === 'admin' || profile.role === 'operator')) {
+      const hideStyle = document.getElementById('rbac-hide-admin');
+      if (hideStyle) hideStyle.remove(); // Deletes the CSS rule, instantly revealing the buttons
     }
     
     return profile;
