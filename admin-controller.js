@@ -146,7 +146,13 @@ const JoeBuildsAdmin = (() => {
     initUIEvents();
     if (!window.supabase) return;
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    try { const profile = await authenticateAdmin(); if (profile) await loadGlobalAssets(); } catch (error) {}
+    try { 
+      const profile = await authenticateAdmin(); 
+      if (profile) await loadGlobalAssets(); 
+    } catch (error) {
+      console.error(error);
+      window.location.href = '/login';
+    }
   };
   return { init };
 })();
