@@ -50,7 +50,14 @@ const JoeBuildsDiagnostics = (() => {
     if (!member || !member.data) throw new Error("No Memberstack session.");
     if (DOM.opLabel) DOM.opLabel.textContent = member.data.customFields?.first_name || 'Client';
     if (DOM.opEmail) DOM.opEmail.textContent = `Logged in as: ${member.data.auth.email}`;
+    
     const { data: profile } = await supabase.from('profiles').select('id, building_id, role').eq('memberstack_id', member.data.id).single();
+    
+    // NEW CODE: Hide Admin and Properties links for Clients/Demo users
+    if (profile && (profile.role === 'client' || profile.role === 'demo')) {
+      document.querySelectorAll('a[href="/properties"], a[href="/admin"]').forEach(el => el.classList.add('jb-hidden'));
+    }
+    
     return profile;
   };
 
