@@ -106,7 +106,6 @@ const JoeBuildsDashboard = (() => {
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
-  // Upgraded to preserve the nice text labels (like 'Integrity Index')
   const mapMeasurementToCard = (data, elementCode, cardTitle, prefixText = '') => {
     const m = data.measurements?.find(x => x.measurement_points?.element_code === elementCode);
     if (m) {
@@ -134,13 +133,11 @@ const JoeBuildsDashboard = (() => {
       DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
     }
 
-    // MAP ALL 6 CARDS WITH THEIR SPECIFIC PREFIX LABELS
+    // MAP ALL 6 CARDS DIRECTLY FROM SUPABASE
     mapMeasurementToCard(data, 'ENVELOPE', 'Building Envelope Condition', 'Integrity Index');
     mapMeasurementToCard(data, 'U-VALUE', 'Thermal Enclosure Performance', 'U-value');
     mapMeasurementToCard(data, 'MOISTURE', 'Structural Moisture Risk', 'Subfloor RH');
     mapMeasurementToCard(data, 'CO2', 'Indoor Air Quality (IAQ)', 'CO₂ avg');
-    
-    // The Readiness and Priority cards don't use prefixes in the design
     mapMeasurementToCard(data, 'READINESS', 'Upgrade Sequence Readiness', '');
     mapMeasurementToCard(data, 'PRIORITY', 'Active Priority Recommendation', '');
   };
