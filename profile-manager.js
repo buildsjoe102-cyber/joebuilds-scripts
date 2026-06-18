@@ -1,6 +1,6 @@
 /**
  * Joe Builds Home Intelligence Platform
- * Global Profile Manager (Dynamic Modal Injection, Memberstack Sync, Supabase Sync)
+ * Global Profile Manager (v2 - Self-Contained CSS Engine & Auth Sync)
  */
 const JoeBuildsProfileManager = (() => {
   const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
@@ -9,41 +9,63 @@ const JoeBuildsProfileManager = (() => {
   let supabaseClient;
   let currentMember = null;
 
-  // 1. Inject the HTML for the Profile Modal directly into the page
+  // 1. Inject Bulletproof CSS explicitly for this modal
+  const injectModalCSS = () => {
+    if (document.getElementById('jb-profile-modal-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'jb-profile-modal-styles';
+    style.innerHTML = `
+      #jbGlobalProfileModal { position: fixed; inset: 0; background-color: rgba(26,36,29,0.7); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 99999; padding: 1rem; }
+      #jbGlobalProfileModal.jb-hidden { display: none !important; }
+      .jb-prof-frame { width: 100%; max-width: 28rem; background-color: var(--surface, #FFFFFF); border: 1px solid var(--border, #C8CCC4); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+      .jb-prof-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border, #C8CCC4); }
+      .jb-prof-close { background: transparent; border: none; cursor: pointer; color: var(--muted-foreground, #637066); padding: 0.25rem; display: flex; align-items: center; justify-content: center; transition: color 0.15s; }
+      .jb-prof-close:hover { color: var(--foreground, #1A241D); }
+      .jb-prof-body { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+      .jb-prof-label { font-family: var(--font-mono, monospace); font-size: 9px; color: var(--muted-foreground, #637066); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.375rem; display: block; font-weight: 700; }
+      .jb-prof-input { width: 100%; border: 1px solid var(--border, #C8CCC4); padding: 0.625rem 0.75rem; background: var(--surface, #FFFFFF); color: var(--foreground, #1A241D); font-family: var(--font-mono, monospace); font-size: 13px; outline: none; transition: border-color 0.15s; }
+      .jb-prof-input:focus { border-color: var(--accent, #2A3C30); }
+      .jb-prof-btn { width: 100%; background: var(--foreground, #1A241D); color: var(--background, #EBEBE6); padding: 0.75rem 1rem; border: 1px solid var(--foreground, #1A241D); font-family: var(--font-mono, monospace); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 0.2s; }
+      .jb-prof-btn:hover { background-color: var(--accent, #2A3C30); }
+      .jb-prof-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+      .jb-prof-del-btn { width: 100%; background: transparent; color: var(--status-review, #A64444); padding: 0.75rem 1rem; border: 1px solid var(--status-review, #A64444); font-family: var(--font-mono, monospace); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 0.2s; }
+      .jb-prof-del-btn:hover { background-color: rgba(166, 68, 68, 0.05); }
+    `;
+    document.head.appendChild(style);
+  };
+
+  // 2. Inject the HTML Modal
   const injectModalHTML = () => {
+    if (document.getElementById('jbGlobalProfileModal')) return;
     const modalHTML = `
-      <div id="jbGlobalProfileModal" class="jb-modal-backdrop jb-hidden" style="z-index: 9999;">
-        <div class="jb-modal-frame" style="max-width: 28rem;">
-          <div class="jb-modal-header" style="display:flex; justify-content:space-between; align-items:center;">
+      <div id="jbGlobalProfileModal" class="jb-hidden">
+        <div class="jb-prof-frame">
+          <div class="jb-prof-header">
             <div>
-              <div class="eyebrow" style="font-family:var(--font-mono); font-size:9px; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.25rem;">Account Settings</div>
-              <h2 style="font-size:18px; font-weight:500;">Edit Profile</h2>
+              <div class="jb-prof-label" style="margin-bottom:0.25rem;">Account Settings</div>
+              <h2 style="font-size:18px; font-weight:500; font-family:var(--font-sans, sans-serif); color:var(--foreground, #1A241D); margin:0;">Edit Profile</h2>
             </div>
-            <button id="closeProfileModal" style="background:transparent; border:none; cursor:pointer; color:var(--muted-foreground);">
+            <button id="closeProfileModal" class="jb-prof-close">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:1.25rem; height:1.25rem;"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
             </button>
           </div>
-          <div class="jb-modal-body" style="padding: 1.5rem;">
-            <form id="jbProfileForm" style="display: flex; flex-direction: column; gap: 1.25rem;">
-              <label style="display:block;">
-                <div class="eyebrow" style="font-family:var(--font-mono); font-size:9px; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.375rem;">Full Name</div>
-                <input type="text" id="profileName" required style="width:100%; border:1px solid var(--border); padding:0.625rem 0.75rem; background:var(--surface); font-family:var(--font-mono); font-size:13px; outline:none;">
+          <div class="jb-prof-body">
+            <form id="jbProfileForm" style="display: flex; flex-direction: column; gap: 1.25rem; margin:0;">
+              <label style="display:block; margin:0;">
+                <span class="jb-prof-label">Full Name</span>
+                <input type="text" id="profileName" required class="jb-prof-input">
               </label>
-              <label style="display:block;">
-                <div class="eyebrow" style="font-family:var(--font-mono); font-size:9px; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.375rem;">Email Address</div>
-                <input type="email" id="profileEmail" required style="width:100%; border:1px solid var(--border); padding:0.625rem 0.75rem; background:var(--surface); font-family:var(--font-mono); font-size:13px; outline:none;">
+              <label style="display:block; margin:0;">
+                <span class="jb-prof-label">Email Address</span>
+                <input type="email" id="profileEmail" required class="jb-prof-input">
               </label>
-              <div id="profileStatusMsg" style="font-size:12px; display:none;"></div>
-              <button type="submit" id="btnSaveProfile" style="width:100%; background:var(--foreground); color:var(--background); padding:0.75rem 1rem; border:1px solid var(--foreground); font-family:var(--font-mono); font-size:11px; text-transform:uppercase; letter-spacing:0.1em; cursor:pointer; margin-top:0.5rem; transition: background 0.2s;">
-                Save Changes
-              </button>
+              <div id="profileStatusMsg" style="font-family:var(--font-sans, sans-serif); font-size:12px; display:none; margin:0;"></div>
+              <button type="submit" id="btnSaveProfile" class="jb-prof-btn" style="margin-top:0.5rem;">Save Changes</button>
             </form>
             
-            <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border);">
-              <div class="eyebrow" style="font-family:var(--font-mono); font-size:9px; color:var(--status-review); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:0.75rem;">Danger Zone</div>
-              <button id="btnDeleteAccount" style="width:100%; background:transparent; color:var(--status-review); padding:0.75rem 1rem; border:1px solid var(--status-review); font-family:var(--font-mono); font-size:11px; text-transform:uppercase; letter-spacing:0.1em; cursor:pointer; transition: background 0.2s;">
-                Delete Account & Data
-              </button>
+            <div style="margin-top: 1rem; padding-top: 1.5rem; border-top: 1px solid var(--border, #C8CCC4);">
+              <div class="jb-prof-label" style="color:var(--status-review, #A64444); margin-bottom:0.75rem;">Danger Zone</div>
+              <button id="btnDeleteAccount" class="jb-prof-del-btn">Delete Account & Data</button>
             </div>
           </div>
         </div>
@@ -52,27 +74,28 @@ const JoeBuildsProfileManager = (() => {
     document.body.insertAdjacentHTML('beforeend', modalHTML);
   };
 
-  // 2. Inject "Edit Profile" button into the existing Dropdown Menu
+  // 3. Inject "Edit Profile" button into Dropdown
   const injectDropdownButton = () => {
     const operatorMenu = document.getElementById('jbOperatorMenu');
     const logoutBtn = document.getElementById('jbLogoutBtn');
     
+    // Check if it's already there to prevent duplicates
+    if (document.getElementById('jbTriggerEditProfile')) return;
+
     if (operatorMenu && logoutBtn) {
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
+      editBtn.id = 'jbTriggerEditProfile';
       editBtn.className = 'jb-menu-item';
       editBtn.textContent = 'Edit Profile';
       editBtn.style.borderBottom = '1px solid var(--background)';
       
-      // Insert it right above the logout button
       operatorMenu.insertBefore(editBtn, logoutBtn);
 
-      // Bind Click Event to Open Modal
       editBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        operatorMenu.classList.add('jb-hidden'); // Close dropdown
+        operatorMenu.classList.add('jb-hidden'); 
         
-        // Fetch current data to pre-fill the form
         currentMember = await window.$memberstackDom.getCurrentMember();
         if (currentMember && currentMember.data) {
           document.getElementById('profileName').value = currentMember.data.customFields?.['first-name'] || '';
@@ -83,7 +106,7 @@ const JoeBuildsProfileManager = (() => {
     }
   };
 
-  // 3. Bind Modal Actions (Save & Delete)
+  // 4. Bind Modal Actions
   const bindModalEvents = () => {
     const modal = document.getElementById('jbGlobalProfileModal');
     const closeBtn = document.getElementById('closeProfileModal');
@@ -92,7 +115,6 @@ const JoeBuildsProfileManager = (() => {
     const deleteBtn = document.getElementById('btnDeleteAccount');
     const statusMsg = document.getElementById('profileStatusMsg');
 
-    // Close Modal
     const closeModal = () => {
       modal.classList.add('jb-hidden');
       statusMsg.style.display = 'none';
@@ -100,7 +122,6 @@ const JoeBuildsProfileManager = (() => {
     closeBtn.addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-    // Handle Form Save
     profileForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       saveBtn.textContent = 'Saving...';
@@ -110,13 +131,11 @@ const JoeBuildsProfileManager = (() => {
       const newEmail = document.getElementById('profileEmail').value;
 
       try {
-        // 1. Update Memberstack
         await window.$memberstackDom.updateMember({
           email: newEmail,
           customFields: { "first-name": newName }
         });
 
-        // 2. Update Supabase Profile Table
         if (currentMember && currentMember.data) {
           await supabaseClient.from('profiles').update({
             first_name: newName,
@@ -124,19 +143,18 @@ const JoeBuildsProfileManager = (() => {
           }).eq('memberstack_id', currentMember.data.id);
         }
 
-        // 3. Update DOM Labels instantly
         const opLabel = document.getElementById('jbOperatorLabel');
         if (opLabel) opLabel.textContent = newName;
 
         statusMsg.textContent = "Profile updated successfully!";
-        statusMsg.style.color = "var(--status-stable)";
+        statusMsg.style.color = "var(--status-stable, #3A6B48)";
         statusMsg.style.display = "block";
         
         setTimeout(() => closeModal(), 1500);
 
       } catch (err) {
         statusMsg.textContent = err.message || "Failed to update profile.";
-        statusMsg.style.color = "var(--status-review)";
+        statusMsg.style.color = "var(--status-review, #A64444)";
         statusMsg.style.display = "block";
       }
 
@@ -144,20 +162,14 @@ const JoeBuildsProfileManager = (() => {
       saveBtn.disabled = false;
     });
 
-    // Handle Account Deletion
     deleteBtn.addEventListener('click', async () => {
       const isConfirmed = confirm("Are you absolutely sure? This will permanently delete your account and revoke your access to the platform.");
       
       if (isConfirmed && currentMember && currentMember.data) {
         deleteBtn.textContent = "Deleting...";
         try {
-          // 1. Wipe their Supabase Profile (This permanently locks them out of the UI)
           await supabaseClient.from('profiles').delete().eq('memberstack_id', currentMember.data.id);
-          
-          // 2. Attempt Memberstack Deletion (If permitted by MS settings)
-          try { await window.$memberstackDom.deleteMember(); } catch(e) { console.log("MS Delete skipped."); }
-          
-          // 3. Force Logout & Redirect
+          try { await window.$memberstackDom.deleteMember(); } catch(e) {}
           await window.$memberstackDom.logout();
           window.location.href = '/login';
         } catch (err) {
@@ -169,12 +181,12 @@ const JoeBuildsProfileManager = (() => {
   };
 
   const init = () => {
-    // Only run this if we are inside the portal (Not on the public home page or login page)
-    const operatorDropdown = document.getElementById('jbOperatorDropdown');
-    if (!operatorDropdown) return;
+    // Only run if the user dropdown exists (meaning they are logged in and in the portal)
+    if (!document.getElementById('jbOperatorDropdown')) return;
 
     if (window.supabase) {
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      injectModalCSS();
       injectModalHTML();
       injectDropdownButton();
       bindModalEvents();
