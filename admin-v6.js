@@ -34,7 +34,7 @@ const JoeBuildsAdmin = (() => {
     uploadStatusText: document.getElementById('upload-status-text'),
     archiveCount: document.getElementById('archive-count'),
 
-    // Users Modal (Defensive lookup)
+    // Users Modal
     btnUserManagement: document.getElementById('btnUserManagement'),
     usersModal: document.getElementById('jbUsersModal'),
     closeUsersModal: document.getElementById('closeUsersModal'),
@@ -92,11 +92,14 @@ const JoeBuildsAdmin = (() => {
 
   const authenticateAdmin = async () => {
     const member = await window.$memberstackDom.getCurrentMember();
-    if (!member || !member.data) throw new Error("No session.");
+    if (!member || !member.data) {
+      window.location.href = '/login';
+      return null;
+    }
+
     const { data: profile, error } = await supabase.from('profiles').select('*').eq('memberstack_id', member.data.id).single();
     
     if (error || !profile) {
-      console.warn("Profile fetch error or missing.");
       window.location.href = '/login';
       return null;
     }
@@ -108,9 +111,10 @@ const JoeBuildsAdmin = (() => {
     
     currentUserRole = profile.role; 
 
-    if (DOM.opLabel) DOM.opLabel.textContent = member.data.customFields?.first_name || profile.first_name || 'Admin';
+    if (DOM.opLabel) DOM.opLabel.textContent = member.data.customFields?.first_name || profile.first_name || 'Operator';
     if (DOM.opEmail) DOM.opEmail.textContent = `Role: ${profile.role.toUpperCase()}`;
     
+    // Both Admin and Operator can see the Users button
     if ((profile.role === 'admin' || profile.role === 'operator') && DOM.btnUserManagement) {
       DOM.btnUserManagement.classList.remove('jb-hidden');
     }
@@ -158,7 +162,7 @@ const JoeBuildsAdmin = (() => {
     const bData = buildingRes.data; 
     if (!bData) return;
 
-    // Safety checks for arrays to prevent .length crashes
+    // Safety arrays
     const mData = measurementsRes.data || [];
     const rData = roomsRes.data || [];
     const sData = scenariosRes.data || [];
@@ -244,6 +248,8 @@ const JoeBuildsAdmin = (() => {
     profiles.forEach(p => {
       const nameStr = p.first_name || 'User';
       const emailStr = p.email || p.memberstack_id.substring(0,8);
+      
+      // If the current user is NOT an admin, disable the role dropdown
       const roleDisabled = currentUserRole !== 'admin' ? 'disabled title="Only Admins can modify roles"' : '';
 
       const tr = document.createElement('tr');
@@ -373,7 +379,7 @@ const JoeBuildsAdmin = (() => {
       if (profile) await loadGlobalAssets(); 
     } catch (error) {
       console.error(error);
-      window.location.href = '/login';
+      // Failsafe is deactivated so it doesn't loop
     }
   };
   return { init };
