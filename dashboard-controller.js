@@ -1,10 +1,10 @@
 /**
  * Joe Builds Home Intelligence Platform
- * Unified Dashboard Controller (Fully Mapped)
+ * Unified Dashboard Controller (Fully Mapped with Prefixes)
  */
 const JoeBuildsDashboard = (() => {
   const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
-  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // PASTE YOUR KEY HERE
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcXlmaXdrYnV2dWFqd3piamhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MzY0MDEsImV4cCI6MjA5NzIxMjQwMX0.F315XwWSxPHEoCjQ14VDfpLBSbH9poN94fMyBGXUehE';
   let supabase;
 
   const DOM = {
@@ -106,13 +106,14 @@ const JoeBuildsDashboard = (() => {
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
-  const mapMeasurementToCard = (data, elementCode, cardTitle) => {
+  // Upgraded to preserve the nice text labels (like 'Integrity Index')
+  const mapMeasurementToCard = (data, elementCode, cardTitle, prefixText = '') => {
     const m = data.measurements?.find(x => x.measurement_points?.element_code === elementCode);
     if (m) {
       updateCardAttributes(cardTitle, {
         status: m.status_flag || 'unknown',
         badge: getBadgeText(m.status_flag),
-        current: `${m.value || ''} ${m.unit || ''}`.trim(),
+        current: `${prefixText} ${m.value || ''} ${m.unit || ''}`.trim(),
         commentary: m.client_facing_wording || 'System tracking active.',
         rec: "Consult pathway for recommended next actions." 
       });
@@ -133,13 +134,15 @@ const JoeBuildsDashboard = (() => {
       DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
     }
 
-    // MAP ALL 6 CARDS DIRECTLY FROM SUPABASE
-    mapMeasurementToCard(data, 'ENVELOPE', 'Building Envelope Condition');
-    mapMeasurementToCard(data, 'U-VALUE', 'Thermal Enclosure Performance');
-    mapMeasurementToCard(data, 'MOISTURE', 'Structural Moisture Risk');
-    mapMeasurementToCard(data, 'CO2', 'Indoor Air Quality (IAQ)');
-    mapMeasurementToCard(data, 'READINESS', 'Upgrade Sequence Readiness');
-    mapMeasurementToCard(data, 'PRIORITY', 'Active Priority Recommendation');
+    // MAP ALL 6 CARDS WITH THEIR SPECIFIC PREFIX LABELS
+    mapMeasurementToCard(data, 'ENVELOPE', 'Building Envelope Condition', 'Integrity Index');
+    mapMeasurementToCard(data, 'U-VALUE', 'Thermal Enclosure Performance', 'U-value');
+    mapMeasurementToCard(data, 'MOISTURE', 'Structural Moisture Risk', 'Subfloor RH');
+    mapMeasurementToCard(data, 'CO2', 'Indoor Air Quality (IAQ)', 'CO₂ avg');
+    
+    // The Readiness and Priority cards don't use prefixes in the design
+    mapMeasurementToCard(data, 'READINESS', 'Upgrade Sequence Readiness', '');
+    mapMeasurementToCard(data, 'PRIORITY', 'Active Priority Recommendation', '');
   };
 
   const updateCardAttributes = (title, mappedData) => {
