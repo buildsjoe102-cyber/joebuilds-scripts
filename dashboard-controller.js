@@ -1,10 +1,10 @@
 /**
  * Joe Builds Home Intelligence Platform
- * Unified Dashboard Controller
+ * Unified Dashboard Controller (Fully Mapped)
  */
 const JoeBuildsDashboard = (() => {
   const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcXlmaXdrYnV2dWFqd3piamhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MzY0MDEsImV4cCI6MjA5NzIxMjQwMX0.F315XwWSxPHEoCjQ14VDfpLBSbH9poN94fMyBGXUehE';
+  const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // PASTE YOUR KEY HERE
   let supabase;
 
   const DOM = {
@@ -46,11 +46,13 @@ const JoeBuildsDashboard = (() => {
         DOM.opMenu.classList.add('jb-hidden');
       });
     }
+
     if (DOM.logoutBtn) {
       DOM.logoutBtn.addEventListener('click', async () => {
         try { await window.$memberstackDom.logout(); window.location.href = '/login'; } catch (err) {}
       });
     }
+
     DOM.metricCards.forEach(card => {
       card.addEventListener('click', () => {
         DOM.mTitle.textContent = card.getAttribute('data-title');
@@ -67,6 +69,7 @@ const JoeBuildsDashboard = (() => {
         DOM.modal.classList.remove('jb-hidden');
       });
     });
+
     DOM.closeBtns.forEach(btn => { if (btn) btn.addEventListener('click', () => DOM.modal.classList.add('jb-hidden')); });
     if(DOM.modal) DOM.modal.addEventListener('click', (e) => { if (e.target === DOM.modal) DOM.modal.classList.add('jb-hidden'); });
   };
@@ -79,12 +82,10 @@ const JoeBuildsDashboard = (() => {
     
     const { data: profile } = await supabase.from('profiles').select('id, building_id, role').eq('memberstack_id', member.data.id).single();
     
-    // NEW CODE: Reveal Admin and Properties links ONLY for Operators/Admins
     if (profile && (profile.role === 'admin' || profile.role === 'operator')) {
       const hideStyle = document.getElementById('rbac-hide-admin');
-      if (hideStyle) hideStyle.remove(); // Deletes the CSS rule, instantly revealing the buttons
+      if (hideStyle) hideStyle.remove(); 
     }
-    
     return profile;
   };
 
@@ -98,40 +99,68 @@ const JoeBuildsDashboard = (() => {
     return { building: buildingRes.data, currentProject: projectsRes.data?.[0], latestDiagnostic: diagnosticsRes.data?.[0], measurements: measurementsRes.data };
   };
 
+  const getBadgeText = (status) => {
+    if(status === 'risk') return 'At Risk';
+    if(status === 'review') return 'Review Required';
+    if(!status) return 'Unknown';
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
+  const mapMeasurementToCard = (data, elementCode, cardTitle) => {
+    const m = data.measurements?.find(x => x.measurement_points?.element_code === elementCode);
+    if (m) {
+      updateCardAttributes(cardTitle, {
+        status: m.status_flag || 'unknown',
+        badge: getBadgeText(m.status_flag),
+        current: `${m.value || ''} ${m.unit || ''}`.trim(),
+        commentary: m.client_facing_wording || 'System tracking active.',
+        rec: "Consult pathway for recommended next actions." 
+      });
+    }
+  };
+
   const populateDashboard = (data) => {
     if (!data.building) return;
-    if (DOM.modalForensicBtn && DOM.modalForensicBtn.textContent.includes('Forensic')) DOM.modalForensicBtn.textContent = 'Open Diagnostic Record';
+    
+    if (DOM.modalForensicBtn && DOM.modalForensicBtn.textContent.includes('Forensic')) {
+      DOM.modalForensicBtn.textContent = 'Open Diagnostic Record';
+    }
+
     const assetName = `${data.currentProject?.project_code || 'PRJ-000'} — ${data.building.address_line_1}`;
     if (DOM.footerProject) DOM.footerProject.textContent = assetName;
     if (DOM.desktopAsset) DOM.desktopAsset.textContent = assetName;
-    if (DOM.heroProjectDate && data.latestDiagnostic) DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
-
-    const moistureData = data.measurements?.find(m => m.measurement_points?.element_code === 'MOISTURE');
-    if (moistureData) {
-      updateCardAttributes('Structural Moisture Risk', {
-        status: moistureData.status_flag,
-        badge: moistureData.status_flag === 'risk' ? 'At Risk' : 'Stable',
-        current: `${moistureData.value} ${moistureData.unit}`,
-        commentary: moistureData.client_facing_wording,
-        rec: "Resolve environmental vectors based on diagnostic guidelines."
-      });
+    if (DOM.heroProjectDate && data.latestDiagnostic) {
+      DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
     }
+
+    // MAP ALL 6 CARDS DIRECTLY FROM SUPABASE
+    mapMeasurementToCard(data, 'ENVELOPE', 'Building Envelope Condition');
+    mapMeasurementToCard(data, 'U-VALUE', 'Thermal Enclosure Performance');
+    mapMeasurementToCard(data, 'MOISTURE', 'Structural Moisture Risk');
+    mapMeasurementToCard(data, 'CO2', 'Indoor Air Quality (IAQ)');
+    mapMeasurementToCard(data, 'READINESS', 'Upgrade Sequence Readiness');
+    mapMeasurementToCard(data, 'PRIORITY', 'Active Priority Recommendation');
   };
 
   const updateCardAttributes = (title, mappedData) => {
     const card = Array.from(DOM.metricCards).find(c => c.getAttribute('data-title') === title);
     if (!card) return;
+    
     card.setAttribute('data-status', mappedData.status);
     card.setAttribute('data-badge', mappedData.badge);
     card.setAttribute('data-current', mappedData.current);
     card.setAttribute('data-commentary', mappedData.commentary);
     card.setAttribute('data-rec', mappedData.rec);
+    
     const valueEl = card.querySelector('.jb-metric-string');
     const descEl = card.querySelector('.jb-metric-description');
+    
     if (valueEl) valueEl.textContent = mappedData.current;
     if (descEl) descEl.textContent = mappedData.commentary;
+    
     const badgeEl = card.querySelector('.jb-status-badge');
     const dotEl = card.querySelector('.jb-badge-dot');
+    
     if (badgeEl && dotEl) {
       badgeEl.className = `jb-status-badge jb-status-${mappedData.status}`;
       dotEl.className = `jb-badge-dot bg-${mappedData.status}`;
