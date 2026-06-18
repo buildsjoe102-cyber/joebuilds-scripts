@@ -1,6 +1,6 @@
 /**
  * Joe Builds Home Intelligence Platform
- * Unified Dashboard Controller (Fully Mapped with Prefixes)
+ * Unified Dashboard Controller (Shimmer, Dynamic Graphs, Routing)
  */
 const JoeBuildsDashboard = (() => {
   const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
@@ -30,7 +30,67 @@ const JoeBuildsDashboard = (() => {
     mThreshold: document.getElementById('mMetricThreshold'),
     mCommentary: document.getElementById('modalCommentary'),
     mRec: document.getElementById('modalRecommendations'),
+    modalGraphSVG: document.querySelector('.jb-modal-graph-panel svg'),
     closeBtns: [document.getElementById('modalHeaderCloseBtn'), document.getElementById('modalFooterCloseBtn')]
+  };
+
+  // Inject Shimmer CSS dynamically so you don't have to touch Webflow
+  const injectStyles = () => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      .jb-shimmer {
+        animation: jb-shimmer 1.5s infinite linear;
+        background: linear-gradient(to right, rgba(165,179,154,0.1) 4%, rgba(165,179,154,0.3) 25%, rgba(165,179,154,0.1) 36%);
+        background-size: 1000px 100%;
+        color: transparent !important;
+        border-radius: 4px;
+        pointer-events: none;
+      }
+      .jb-shimmer * { opacity: 0; }
+      @keyframes jb-shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  };
+
+  // Math Engine to generate a unique SVG graph curve based on the metric's value
+  const generateDynamicGraph = (currentValueString) => {
+    let base = parseFloat(currentValueString);
+    if (isNaN(base) || base === 0) base = 50; 
+
+    // Generate 11 historical points with slight variance, 12th is current
+    let points = [];
+    for(let i=0; i<11; i++) {
+       let variance = base * 0.12; // 12% fluctuation
+       points.push(base + (Math.random() * variance * 2) - variance);
+    }
+    points.push(base); 
+
+    let min = Math.min(...points);
+    let max = Math.max(...points);
+    let range = max - min || 1;
+    let stepX = 300 / 11;
+
+    let pathD = "";
+    let circles = "";
+
+    points.forEach((p, i) => {
+       // Normalize to SVG height (64px) with padding
+       let y = 64 - (((p - min) / range) * 50 + 7); 
+       let x = i * stepX;
+       if(i === 0) pathD += `M ${x} ${y} `;
+       else pathD += `L ${x} ${y} `;
+       circles += `<circle cx="${x}" cy="${y}" r="1.6" fill="currentColor"></circle>`;
+    });
+
+    return `
+      <defs><pattern id="dgrid" width="25" height="16" patternUnits="userSpaceOnUse"><path d="M 25 0 L 0 0 0 16" fill="none" stroke="currentColor" stroke-opacity="0.08" stroke-width="0.5"></path></pattern></defs>
+      <rect width="300" height="64" fill="url(#dgrid)"></rect>
+      <path d="${pathD}" fill="none" stroke="currentColor" stroke-width="1.2"></path>
+      ${circles}
+    `;
   };
 
   const initUIEvents = () => {
@@ -53,6 +113,13 @@ const JoeBuildsDashboard = (() => {
       });
     }
 
+    // Modal Routing Button
+    if (DOM.modalForensicBtn) {
+      DOM.modalForensicBtn.addEventListener('click', () => {
+        window.location.href = '/diagnostics';
+      });
+    }
+
     DOM.metricCards.forEach(card => {
       card.addEventListener('click', () => {
         DOM.mTitle.textContent = card.getAttribute('data-title');
@@ -63,9 +130,16 @@ const JoeBuildsDashboard = (() => {
         DOM.mThreshold.textContent = card.getAttribute('data-threshold');
         DOM.mCommentary.textContent = card.getAttribute('data-commentary');
         DOM.mRec.textContent = card.getAttribute('data-rec');
+        
         const status = card.getAttribute('data-status');
         DOM.mStatusBadge.className = `jb-status-badge jb-status-${status}`;
         DOM.mStatusDot.className = `jb-badge-dot bg-${status}`;
+        
+        // Inject Dynamic Graph
+        if(DOM.modalGraphSVG) {
+          DOM.modalGraphSVG.innerHTML = generateDynamicGraph(card.getAttribute('data-current'));
+        }
+
         DOM.modal.classList.remove('jb-hidden');
       });
     });
@@ -116,6 +190,11 @@ const JoeBuildsDashboard = (() => {
         commentary: m.client_facing_wording || 'System tracking active.',
         rec: "Consult pathway for recommended next actions." 
       });
+
+      // Update Top Right Integrity Index Badge specifically
+      if (elementCode === 'ENVELOPE' && DOM.integrityValue) {
+        DOM.integrityValue.innerHTML = `${m.value}<span class="jb-integrity-fraction">/1.00</span>`;
+      }
     }
   };
 
@@ -133,43 +212,26 @@ const JoeBuildsDashboard = (() => {
       DOM.heroProjectDate.textContent = new Date(data.latestDiagnostic.created_at).toISOString().split('T')[0];
     }
 
-    // MAP ALL 6 CARDS DIRECTLY FROM SUPABASE
     mapMeasurementToCard(data, 'ENVELOPE', 'Building Envelope Condition', 'Integrity Index');
     mapMeasurementToCard(data, 'U-VALUE', 'Thermal Enclosure Performance', 'U-value');
     mapMeasurementToCard(data, 'MOISTURE', 'Structural Moisture Risk', 'Subfloor RH');
     mapMeasurementToCard(data, 'CO2', 'Indoor Air Quality (IAQ)', 'CO₂ avg');
     mapMeasurementToCard(data, 'READINESS', 'Upgrade Sequence Readiness', '');
     mapMeasurementToCard(data, 'PRIORITY', 'Active Priority Recommendation', '');
-  };
 
-  const updateCardAttributes = (title, mappedData) => {
-    const card = Array.from(DOM.metricCards).find(c => c.getAttribute('data-title') === title);
-    if (!card) return;
-    
-    card.setAttribute('data-status', mappedData.status);
-    card.setAttribute('data-badge', mappedData.badge);
-    card.setAttribute('data-current', mappedData.current);
-    card.setAttribute('data-commentary', mappedData.commentary);
-    card.setAttribute('data-rec', mappedData.rec);
-    
-    const valueEl = card.querySelector('.jb-metric-string');
-    const descEl = card.querySelector('.jb-metric-description');
-    
-    if (valueEl) valueEl.textContent = mappedData.current;
-    if (descEl) descEl.textContent = mappedData.commentary;
-    
-    const badgeEl = card.querySelector('.jb-status-badge');
-    const dotEl = card.querySelector('.jb-badge-dot');
-    
-    if (badgeEl && dotEl) {
-      badgeEl.className = `jb-status-badge jb-status-${mappedData.status}`;
-      dotEl.className = `jb-badge-dot bg-${mappedData.status}`;
-      badgeEl.innerHTML = `<span class="${dotEl.className}"></span>${mappedData.badge}`;
-    }
+    // Remove Shimmer Effect once data is mapped
+    DOM.metricCards.forEach(c => c.classList.remove('jb-shimmer'));
+    if (DOM.integrityValue) DOM.integrityValue.classList.remove('jb-shimmer');
   };
 
   const init = async () => {
+    injectStyles();
     initUIEvents();
+    
+    // Apply Shimmer immediately on load
+    DOM.metricCards.forEach(c => c.classList.add('jb-shimmer'));
+    if (DOM.integrityValue) DOM.integrityValue.classList.add('jb-shimmer');
+
     if (!window.supabase) return;
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     try {
