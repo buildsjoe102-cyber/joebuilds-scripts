@@ -65,7 +65,7 @@ const JoeBuildsDiagnostics = (() => {
     const member = await window.$memberstackDom.getCurrentMember();
     if (!member || !member.data) throw new Error("No session.");
     if (DOM.opLabel) DOM.opLabel.textContent = member.data.customFields?.first_name || 'Client';
-    if (DOM.opEmail) DOM.opEmail.textContent = `Logged in as: ${member.data.auth.email}`;
+    if (DOM.opEmail) DOM.opEmail.textContent = `Logged in as: ${member.data.auth.email.toLowerCase()}`;
     const { data: profile } = await supabase.from('profiles').select('id, building_id, role').eq('memberstack_id', member.data.id).single();
     if (profile && (profile.role === 'admin' || profile.role === 'operator')) { const hideStyle = document.getElementById('rbac-hide-admin'); if (hideStyle) hideStyle.remove(); }
     return profile;
