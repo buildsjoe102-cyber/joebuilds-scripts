@@ -1,0 +1,177 @@
+/**
+ * Joe Builds Home Intelligence Platform
+ * Digital Twin Controller (v13 - Operator Dropdown Fix)
+ */
+const JoeBuildsDigitalTwin = (() => {
+  const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcXlmaXdrYnV2dWFqd3piamhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MzY0MDEsImV4cCI6MjA5NzIxMjQwMX0.F315XwWSxPHEoCjQ14VDfpLBSbH9poN94fMyBGXUehE';
+  let supabase, activeZonesData = {}, globalImages = [];
+
+  // Legacy fallback if no DB coordinates exist
+  const roomCoordinates = { 'primary': { left: '22%', top: '28%' }, 'kitchen': { left: '60%', top: '32%' }, 'plant': { left: '78%', top: '62%' }, 'subfloor': { left: '40%', top: '78%' }, 'living': { left: '45%', top: '50%' } };
+
+  const DOM = {
+    opLabel: document.getElementById('jbOperatorLabel'), opEmail: document.getElementById('jbOperatorEmail'), dropBtn: document.getElementById('jbOperatorDropdown'), opMenu: document.getElementById('jbOperatorMenu'), logoutBtn: document.getElementById('jbLogoutBtn'),
+    desktopSidebarAsset: document.getElementById('desktopSidebarAsset'), desktopHeaderAsset: document.getElementById('desktopHeaderAsset'), headerClimateText: document.getElementById('desktopHeaderClimate'), headerSysText: document.getElementById('desktopHeaderSys'), sidebarMeta: document.getElementById('sidebarMeta'),
+    zonesListContainer: document.getElementById('zonesListContainer'), zonesCountLabel: document.getElementById('zonesCountLabel'), dynamicHotspots: document.getElementById('dynamic-hotspots'),
+    aside: document.getElementById('jbDiagnosticAside'), backdrop: document.getElementById('jbAsideBackdrop'), closeBtn: document.getElementById('asideCloseBtn'), aTitle: document.getElementById('asideZoneTitle'), aRH: document.getElementById('asideMetricRH'), aTVOC: document.getElementById('asideMetricTVOC'), aCO2: document.getElementById('asideMetricCO2'), aBadge: document.getElementById('asideStatusBadge'), aDot: document.getElementById('asideStatusDot'), aTxt: document.getElementById('asideStatusText'), aNotes: document.getElementById('asideNotes'), imageryGrid: document.getElementById('imageryGridContainer'), aMonitoringText: document.getElementById('asideMonitoringText')
+  };
+
+  const injectSkeletonCSS = () => {
+    if(document.getElementById('jb-skeleton-css')) return;
+    const style = document.createElement('style'); style.id = 'jb-skeleton-css';
+    style.innerHTML = `.jb-skeleton-block { position: relative; overflow: hidden; background-color: rgba(165, 179, 154, 0.2) !important; color: transparent !important; border-color: transparent !important; pointer-events: none; border-radius: 4px; } .jb-skeleton-block::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; left: 0; transform: translateX(-100%); background-image: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 100%); animation: jb-shimmer 1.5s infinite; } .jb-skeleton-block * { visibility: hidden !important; } @keyframes jb-shimmer { 100% { transform: translateX(100%); } }`;
+    document.head.appendChild(style);
+  };
+
+  const toggleSkeletonState = (isLoading) => {
+    const elementsToToggle = [DOM.desktopSidebarAsset, DOM.desktopHeaderAsset, DOM.headerClimateText, DOM.headerSysText, DOM.zonesCountLabel, DOM.sidebarMeta];
+    elementsToToggle.forEach(el => { if (!el) return; if (isLoading) el.classList.add('jb-skeleton-block'); else el.classList.remove('jb-skeleton-block'); });
+    if (isLoading && DOM.zonesListContainer) DOM.zonesListContainer.innerHTML = `<div class="jb-zone-row-item jb-skeleton-block" style="height: 48px; margin-bottom: 1px;"></div><div class="jb-zone-row-item jb-skeleton-block" style="height: 48px; margin-bottom: 1px;"></div>`;
+  };
+
+  const initUIEvents = () => {
+    // Dropdown functionality
+    if (DOM.dropBtn && DOM.opMenu) {
+      DOM.dropBtn.addEventListener('click', (e) => { 
+        e.stopPropagation(); 
+        DOM.dropBtn.setAttribute('aria-expanded', !(DOM.dropBtn.getAttribute('aria-expanded') === 'true')); 
+        DOM.opMenu.classList.toggle('jb-hidden'); 
+      });
+      document.addEventListener('click', () => { 
+        DOM.dropBtn.setAttribute('aria-expanded', 'false'); 
+        DOM.opMenu.classList.add('jb-hidden'); 
+      });
+    }
+
+    if (DOM.logoutBtn) {
+      DOM.logoutBtn.addEventListener('click', async () => { 
+        try { await window.$memberstackDom.logout(); window.location.href = '/login'; } catch (err) {} 
+      });
+    }
+
+    const closeAside = () => { DOM.aside.classList.remove('is-open'); DOM.backdrop.classList.remove('is-open'); document.querySelectorAll('.jb-hotspot').forEach(el => el.classList.remove('jb-active-node')); document.querySelectorAll('.jb-zone-row-item').forEach(el => el.classList.remove('jb-active-node')); setTimeout(() => { DOM.aside.classList.add('jb-hidden'); }, 300); };
+    if (DOM.closeBtn) DOM.closeBtn.addEventListener('click', closeAside); if (DOM.backdrop) DOM.backdrop.addEventListener('click', closeAside);
+  };
+
+  const fetchTwinData = async (buildingId) => {
+    const [buildingRes, projectsRes, roomsRes, measurementsRes, evidenceRes] = await Promise.all([
+      supabase.from('buildings').select('*').eq('id', buildingId).single(),
+      supabase.from('projects').select('*').eq('building_id', buildingId).order('created_at', { ascending: false }),
+      supabase.from('rooms').select('*').eq('building_id', buildingId).order('created_at', { ascending: true }),
+      supabase.from('measurements').select(`*, measurement_points(zone_code, element_code)`).eq('building_id', buildingId),
+      supabase.from('evidence_assets').select('*').eq('building_id', buildingId).order('created_at', { ascending: false })
+    ]);
+    if (evidenceRes.data) globalImages = evidenceRes.data.filter(f => f.file_name.match(/\.(jpg|jpeg|png|webp|gif)$/i));
+    return { building: buildingRes.data, currentProject: projectsRes.data?.[0], rooms: roomsRes.data || [], measurements: measurementsRes.data || [] };
+  };
+
+  const processZoneData = (rooms, measurements) => {
+    const zones = {};
+    rooms.forEach(room => {
+      const roomMs = measurements.filter(m => m.room_id === room.id);
+      const getVal = (code) => { const m = roomMs.find(x => x.measurement_points?.element_code === code); if (!m) return '--'; let unit = m.unit; if (!unit) { if (code === 'RH') unit = '%'; if (code === 'CO2') unit = 'ppm'; if (code === 'VOC') unit = 'mg/m³'; } return `${m.value || 0} ${unit || ''}`.trim(); };
+      const statuses = roomMs.map(m => m.status_flag);
+      let overallStatus = 'stable'; if (statuses.includes('review')) overallStatus = 'review'; else if (statuses.includes('risk')) overallStatus = 'risk'; else if (statuses.includes('measured')) overallStatus = 'measured';
+      const criticalM = roomMs.find(m => m.status_flag === overallStatus) || roomMs[0];
+      const activeSensors = []; if(getVal('RH') !== '--') activeSensors.push('RH'); if(getVal('CO2') !== '--') activeSensors.push('CO₂'); if(getVal('VOC') !== '--') activeSensors.push('VOC');
+      
+      zones[room.id] = { 
+        id: room.id, title: room.room_name_current, code: room.room_code.toLowerCase(),
+        map_x: room.map_x, map_y: room.map_y,
+        rh: getVal('RH'), tvoc: getVal('VOC'), co2: getVal('CO2'), status: overallStatus,
+        badge: overallStatus === 'risk' ? 'At Risk' : overallStatus === 'review' ? 'Review Required' : overallStatus.charAt(0).toUpperCase() + overallStatus.slice(1),
+        notes: room.notes || 'No active analyst notes for this zone.', monitoring: activeSensors.length > 0 ? `Active Sensors: ${activeSensors.join(', ')} · 30s interval` : `No active telemetry nodes linked.`
+      };
+    });
+    return zones;
+  };
+
+  const renderDashboard = (data) => {
+    if (!data.building) return;
+    const assetName = `${data.currentProject?.project_code || 'PRJ-000'} — ${data.building.address_line_1}`;
+    if (DOM.desktopSidebarAsset) DOM.desktopSidebarAsset.textContent = assetName; if (DOM.desktopHeaderAsset) DOM.desktopHeaderAsset.textContent = assetName;
+    if (DOM.headerSysText) DOM.headerSysText.textContent = data.building.status || 'Pending';
+    const climateText = (data.building.state || 'WA') === 'WA' ? 'Zone 5 — Warm Temperate' : 'Zone 6 — Mild Temperate';
+    if (DOM.headerClimateText) DOM.headerClimateText.textContent = climateText; if (DOM.sidebarMeta) DOM.sidebarMeta.textContent = climateText;
+
+    activeZonesData = processZoneData(data.rooms, data.measurements);
+    const zoneKeys = Object.keys(activeZonesData);
+    if (DOM.zonesCountLabel) DOM.zonesCountLabel.textContent = `Zones · ${zoneKeys.length}`;
+    
+    if (DOM.zonesListContainer) {
+      DOM.zonesListContainer.innerHTML = '';
+      zoneKeys.forEach(key => {
+        const zone = activeZonesData[key];
+        const btn = document.createElement('button'); btn.className = 'jb-zone-row-item'; btn.setAttribute('data-id', key);
+        btn.innerHTML = `<span class="jb-zone-label">${zone.title}</span><span class="jb-status-badge jb-status-${zone.status}"><span class="jb-badge-dot bg-${zone.status}"></span>${zone.badge}</span>`;
+        btn.addEventListener('click', (e) => { e.stopPropagation(); openDiagnosticPanel(key); });
+        DOM.zonesListContainer.appendChild(btn);
+      });
+    }
+
+    if (DOM.dynamicHotspots) {
+      DOM.dynamicHotspots.innerHTML = '';
+      let unknownOffset = 10; 
+
+      zoneKeys.forEach(key => {
+        const zone = activeZonesData[key];
+        let coords = null;
+        
+        if (zone.map_x != null && zone.map_y != null) {
+          coords = { left: `${zone.map_x}%`, top: `${zone.map_y}%` };
+        } else if (roomCoordinates[zone.code]) {
+          coords = roomCoordinates[zone.code]; 
+        } else {
+          coords = { left: `${unknownOffset}%`, top: '90%' };
+          unknownOffset += 15;
+        }
+
+        const hotspotHTML = `<button class="jb-hotspot" style="left:${coords.left}; top:${coords.top};" data-id="${key}"><span class="jb-hotspot-pulse"><span class="jb-hotspot-ping-wave bg-${zone.status}"></span><span class="jb-hotspot-core-ring" style="border-color: var(--status-${zone.status});"></span></span><span class="jb-hotspot-tag">${zone.title}</span></button>`;
+        DOM.dynamicHotspots.insertAdjacentHTML('beforeend', hotspotHTML);
+      });
+      document.querySelectorAll('.jb-hotspot').forEach(node => { node.addEventListener('click', (e) => { e.stopPropagation(); openDiagnosticPanel(node.getAttribute('data-id')); }); });
+    }
+    toggleSkeletonState(false);
+  };
+
+  const openDiagnosticPanel = (zoneId) => {
+    document.querySelectorAll('.jb-hotspot').forEach(el => el.classList.remove('jb-active-node'));
+    document.querySelectorAll('.jb-zone-row-item').forEach(el => el.classList.remove('jb-active-node'));
+    const data = activeZonesData[zoneId]; if (!data) return;
+    DOM.aTitle.textContent = data.title; DOM.aRH.textContent = data.rh; DOM.aTVOC.textContent = data.tvoc; DOM.aCO2.textContent = data.co2; DOM.aTxt.textContent = data.badge; DOM.aNotes.textContent = data.notes; DOM.aMonitoringText.textContent = data.monitoring;
+    DOM.aBadge.className = `jb-status-badge jb-status-${data.status}`; DOM.aDot.className = `jb-badge-dot bg-${data.status}`;
+
+    if (DOM.imageryGrid) {
+      const roomImages = globalImages.filter(img => img.room_id === data.id);
+      DOM.imageryGrid.innerHTML = '';
+      if (roomImages.length > 0) {
+        roomImages.slice(0, 2).forEach(img => { DOM.imageryGrid.innerHTML += `<div class="jb-imagery-box" style="padding:0; overflow:hidden; border:none; background:var(--border);"><img src="${img.file_url}" alt="Diagnostic Image" style="width:100%; height:100%; object-fit:cover;"></div>`; });
+        if (roomImages.length === 1) DOM.imageryGrid.innerHTML += `<div class="jb-imagery-box"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:1.25rem;height:1.25rem;"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"></path><circle cx="12" cy="13" r="3"></circle></svg></div>`;
+      } else {
+        DOM.imageryGrid.innerHTML = `<div class="jb-imagery-box"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:1.25rem;height:1.25rem;"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"></path><circle cx="12" cy="13" r="3"></circle></svg></div><div class="jb-imagery-box"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:1.25rem;height:1.25rem;"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"></path><circle cx="12" cy="13" r="3"></circle></svg></div>`;
+      }
+    }
+
+    const tNode = document.querySelector(`.jb-hotspot[data-id="${zoneId}"]`); const tRow = document.querySelector(`.jb-zone-row-item[data-id="${zoneId}"]`);
+    if (tNode) tNode.classList.add('jb-active-node'); if (tRow) { tRow.classList.add('jb-active-node'); tRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    DOM.aside.classList.remove('jb-hidden'); setTimeout(() => { DOM.aside.classList.add('is-open'); DOM.backdrop.classList.add('is-open'); }, 10);
+  };
+
+  const init = async () => {
+    injectSkeletonCSS(); toggleSkeletonState(true); initUIEvents();
+    if (!window.supabase) return;
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    try {
+      const member = await window.$memberstackDom.getCurrentMember();
+      if (!member || !member.data) throw new Error("No session");
+      if (DOM.opLabel) DOM.opLabel.textContent = member.data.customFields?.first_name || 'Client';
+      if (DOM.opEmail) DOM.opEmail.textContent = `Logged in as: ${member.data.auth.email.toLowerCase()}`;
+      const { data: profile } = await supabase.from('profiles').select('building_id').eq('memberstack_id', member.data.id).single();
+      if (profile?.building_id) { const twinData = await fetchTwinData(profile.building_id); renderDashboard(twinData); } else { toggleSkeletonState(false); }
+    } catch (error) {}
+  };
+  return { init };
+})();
+
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', JoeBuildsDigitalTwin.init); } else { JoeBuildsDigitalTwin.init(); }
