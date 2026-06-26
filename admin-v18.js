@@ -1,0 +1,257 @@
+/**
+ * Joe Builds - Admin Controller (v18 - User Delete & Suspend)
+ */
+const JoeBuildsAdmin = (() => {
+  const SUPABASE_URL = 'https://jsqyfiwkbuvuajwzbjhd.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzcXlmaXdrYnV2dWFqd3piamhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MzY0MDEsImV4cCI6MjA5NzIxMjQwMX0.F315XwWSxPHEoCjQ14VDfpLBSbH9poN94fMyBGXUehE';
+  let supabase, currentBuildingId = null, currentUserRole = null, globalBuildings = [];
+  
+  const DOM = { 
+    assetSelect: document.getElementById('asset-select'), assetCount: document.getElementById('asset-count'), editorsWrap: document.getElementById('admin-editors-wrap'), emptyStateContainer: document.getElementById('empty-state-container'), btnInitializeAsset: document.getElementById('btnInitializeAsset'), telemetryContainer: document.getElementById('telemetry-container'), twinNodesContainer: document.getElementById('twin-nodes-container'), pathwayContainer: document.getElementById('pathway-container'), reportInput: document.getElementById('report-upload-input'), uploadStatusText: document.getElementById('upload-status-text'), archiveCount: document.getElementById('archive-count'), uploadTargetRoom: document.getElementById('upload-target-room'), btnUserManagement: document.getElementById('btnUserManagement'), usersModal: document.getElementById('jbUsersModal'), closeUsersModal: document.getElementById('closeUsersModal'), usersTableBody: document.getElementById('usersTableBody'),
+    desktopSidebarAsset: document.getElementById('desktopSidebarAsset'), desktopHeaderAsset: document.getElementById('desktopHeaderAsset'), headerClimateText: document.querySelectorAll('.header-telemetry-cluster .tabular')[1], headerSysText: document.querySelectorAll('.header-telemetry-cluster .tabular')[2]
+  };
+
+  const showToast = (message, type = 'success') => { const toast = document.createElement('div'); const color = type === 'success' ? 'var(--status-stable, #3A6B48)' : 'var(--status-review, #A64444)'; toast.style.cssText = `position: fixed; bottom: 24px; right: 24px; background: var(--surface, #FFF); color: var(--foreground, #1A241D); border-left: 4px solid ${color}; padding: 12px 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); font-family: var(--font-mono, monospace); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; z-index: 999999; transform: translateX(120%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; gap: 8px;`; const icon = type === 'success' ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>` : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`; toast.innerHTML = `${icon} <span>${message}</span>`; document.body.appendChild(toast); requestAnimationFrame(() => toast.style.transform = 'translateX(0)'); setTimeout(() => { toast.style.transform = 'translateX(120%)'; setTimeout(() => toast.remove(), 300); }, 3000); };
+  
+  const toggleSkeletonState = (isLoading) => { 
+    const elementsToToggle = [DOM.desktopSidebarAsset, DOM.desktopHeaderAsset, DOM.headerClimateText, DOM.headerSysText, DOM.assetCount, DOM.archiveCount]; 
+    elementsToToggle.forEach(el => { if (!el) return; if (isLoading) el.classList.add('jb-skeleton-block'); else el.classList.remove('jb-skeleton-block'); }); 
+    if (isLoading && DOM.telemetryContainer) DOM.telemetryContainer.innerHTML = `<div class="card-surface jb-skeleton-block" style="height: 150px;"></div>`; 
+  };
+
+  const initUIEvents = () => {
+    if (DOM.assetSelect) { DOM.assetSelect.addEventListener('change', (e) => { currentBuildingId = e.target.value; toggleSkeletonState(true); loadAssetContext(currentBuildingId); }); }
+    if (DOM.reportInput) DOM.reportInput.addEventListener('change', handleReportUpload);
+    if (DOM.btnInitializeAsset) { DOM.btnInitializeAsset.addEventListener('click', async () => { DOM.btnInitializeAsset.textContent = "Deploying Baseline..."; DOM.btnInitializeAsset.disabled = true; await initializeBuildingData(currentBuildingId); }); }
+    if (DOM.btnUserManagement) DOM.btnUserManagement.addEventListener('click', openUsersModal);
+    if (DOM.closeUsersModal) DOM.closeUsersModal.addEventListener('click', () => { if(DOM.usersModal) DOM.usersModal.classList.add('jb-hidden'); });
+    if (DOM.usersModal) DOM.usersModal.addEventListener('click', (e) => { if (e.target === DOM.usersModal) DOM.usersModal.classList.add('jb-hidden'); });
+  };
+
+  const authenticateAdmin = async () => {
+    const member = await window.$memberstackDom.getCurrentMember(); if (!member || !member.data) { window.location.href = '/login'; return null; }
+    const { data: profile, error } = await supabase.from('profiles').select('*').eq('memberstack_id', member.data.id).single();
+    if (error || !profile) { window.location.href = '/login'; return null; }
+    currentUserRole = profile.role || 'client'; if (currentUserRole === 'client' || currentUserRole === 'demo' || currentUserRole === 'suspended') { window.location.href = '/dashboard'; return null; }
+    if ((currentUserRole === 'admin' || currentUserRole === 'operator') && DOM.btnUserManagement) { DOM.btnUserManagement.classList.remove('jb-hidden'); }
+    return profile;
+  };
+
+  const loadGlobalAssets = async () => {
+    const { data: buildings, error } = await supabase.from('buildings').select('id, building_code, address_line_1').order('created_at', { ascending: false });
+    if (error || !buildings || buildings.length === 0) { if(DOM.assetCount) DOM.assetCount.textContent = `0 managed records`; if(DOM.assetSelect) DOM.assetSelect.innerHTML = `<option>No properties found</option>`; toggleSkeletonState(false); return; }
+    globalBuildings = buildings; if(DOM.assetCount) DOM.assetCount.textContent = `${buildings.length} managed records`; if(DOM.assetSelect) DOM.assetSelect.innerHTML = '';
+    buildings.forEach(b => { const opt = document.createElement('option'); opt.value = b.id; opt.textContent = `${b.building_code || 'PRJ'} — ${b.address_line_1}`; if(DOM.assetSelect) DOM.assetSelect.appendChild(opt); });
+    currentBuildingId = buildings[0].id; loadAssetContext(currentBuildingId); 
+  };
+
+  const loadAssetContext = async (buildingId) => {
+    try {
+      const [buildingRes, measurementsRes, roomsRes, scenariosRes, reportsRes] = await Promise.all([ 
+        supabase.from('buildings').select('*').eq('id', buildingId).single(),
+        supabase.from('measurements').select(`*, measurement_points(*)`).eq('building_id', buildingId), 
+        supabase.from('rooms').select('*').eq('building_id', buildingId).order('created_at', { ascending: true }), 
+        supabase.from('upgrade_scenarios').select('*').eq('building_id', buildingId).order('step_number', { ascending: true }), 
+        supabase.from('reports').select('id').eq('building_id', buildingId) 
+      ]);
+      
+      const bData = buildingRes.data; 
+      const mData = measurementsRes.data || []; const rData = roomsRes.data || []; const sData = scenariosRes.data || []; const repData = reportsRes.data || [];
+      
+      if (bData) {
+        const bTitle = `${bData.building_code || 'PRJ'} — ${bData.address_line_1}`;
+        if(DOM.desktopSidebarAsset) DOM.desktopSidebarAsset.textContent = bTitle; 
+        if(DOM.desktopHeaderAsset) DOM.desktopHeaderAsset.textContent = bTitle;
+        if(DOM.headerSysText) DOM.headerSysText.textContent = bData.status || 'Pending';
+        if(DOM.headerClimateText) DOM.headerClimateText.textContent = bData.state === 'WA' ? 'Zone 5 — Warm Temperate' : 'Zone 6 — Mild Temperate';
+      }
+
+      if(DOM.archiveCount) DOM.archiveCount.textContent = `Archive currently holds ${repData.length} reports.`;
+      
+      if (DOM.uploadTargetRoom) { 
+        DOM.uploadTargetRoom.innerHTML = '<option value="">Entire Building (General Report)</option>'; 
+        rData.forEach(r => { const opt = document.createElement('option'); opt.value = r.id; opt.textContent = r.room_name_current; DOM.uploadTargetRoom.appendChild(opt); }); 
+      }
+      
+      if (mData.length === 0 && sData.length === 0) { 
+        if(DOM.editorsWrap) DOM.editorsWrap.classList.add('jb-hidden'); if(DOM.emptyStateContainer) DOM.emptyStateContainer.classList.remove('jb-hidden'); 
+      } else { 
+        if(DOM.emptyStateContainer) DOM.emptyStateContainer.classList.add('jb-hidden'); if(DOM.editorsWrap) DOM.editorsWrap.classList.remove('jb-hidden'); 
+        renderTelemetryEditor(mData); renderTwinEditor(rData, mData); renderPathwayEditor(sData); 
+      }
+    } catch(err) { console.error("Error loading context:", err); }
+    toggleSkeletonState(false);
+  };
+
+  const initializeBuildingData = async (bId) => {
+    try {
+      await supabase.from('upgrade_scenarios').insert([
+        {building_id: bId, step_number: 1, phase: 1, phase_name: 'Measure', title: 'Home Performance Baseline', status: 'completed'},
+        {building_id: bId, step_number: 2, phase: 1, phase_name: 'Measure', title: 'Internal Environment Baseline', status: 'completed'},
+        {building_id: bId, step_number: 3, phase: 2, phase_name: 'Understand', title: 'Moisture + Thermal Walkthrough', status: 'in-progress'},
+        {building_id: bId, step_number: 4, phase: 2, phase_name: 'Understand', title: 'Room-Level Risk Review', status: 'locked'},
+        {building_id: bId, step_number: 5, phase: 2, phase_name: 'Understand', title: 'Triggered Investigation', status: 'locked'},
+        {building_id: bId, step_number: 6, phase: 3, phase_name: 'Control', title: 'Controlled Upgrade Pathway', status: 'locked'},
+        {building_id: bId, step_number: 7, phase: 3, phase_name: 'Control', title: 'Verification / Retest', status: 'locked'},
+        {building_id: bId, step_number: 8, phase: 3, phase_name: 'Control', title: 'Home Stability Report', status: 'locked'}
+      ]);
+      const {data: rooms} = await supabase.from('rooms').insert([
+        {building_id: bId, room_code: 'primary', room_name_current: 'Primary Suite'}, {building_id: bId, room_code: 'kitchen', room_name_current: 'Kitchen'}, {building_id: bId, room_code: 'plant', room_name_current: 'Plant Room'}, {building_id: bId, room_code: 'subfloor', room_name_current: 'Subfloor Void (E)'}, {building_id: bId, room_code: 'living', room_name_current: 'Living Volume'}
+      ]).select();
+      const {data: basePts} = await supabase.from('measurement_points').insert([
+        {building_id: bId, element_code: 'ENVELOPE'}, {building_id: bId, element_code: 'U-VALUE'}, {building_id: bId, element_code: 'READINESS'}, {building_id: bId, element_code: 'PRIORITY'}, {building_id: bId, element_code: 'ACH50'}, {building_id: bId, element_code: 'ELA'}, {building_id: bId, element_code: 'THERMAL_BRIDGE'}
+      ]).select();
+      if(rooms) { 
+        const rPtsInsert = []; rooms.forEach(r => { rPtsInsert.push({building_id: bId, room_id: r.id, element_code: 'RH'}); rPtsInsert.push({building_id: bId, room_id: r.id, element_code: 'CO2'}); rPtsInsert.push({building_id: bId, room_id: r.id, element_code: 'VOC'}); }); 
+        const {data: roomPts} = await supabase.from('measurement_points').insert(rPtsInsert).select(); const allPts = [...(basePts||[]), ...(roomPts||[])]; const mInserts = allPts.map(pt => ({ building_id: bId, measurement_point_id: pt.id, room_id: pt.room_id || null, status_flag: 'unknown', value: 0 })); await supabase.from('measurements').insert(mInserts); 
+      }
+      if(DOM.btnInitializeAsset) { DOM.btnInitializeAsset.textContent = "Generate Home Performance Baseline"; DOM.btnInitializeAsset.disabled = false; }
+      loadAssetContext(bId);
+    } catch(err) {}
+  };
+
+  const openUsersModal = async () => {
+    if(!DOM.usersTableBody || !DOM.usersModal) return; 
+    
+    // Fix Table Header for the Delete column
+    const theadRow = document.querySelector('#usersTableBody').previousElementSibling?.querySelector('tr');
+    if(theadRow && theadRow.children.length === 4) {
+      theadRow.children[3].style.width = '40%';
+    }
+
+    DOM.usersTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 2rem;">Loading security records...</td></tr>`; 
+    DOM.usersModal.classList.remove('jb-hidden');
+    
+    const { data: profiles } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+    if(!profiles) { DOM.usersTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center;">Failed to load users.</td></tr>`; return; }
+    DOM.usersTableBody.innerHTML = '';
+    
+    const bOptions = `<option value="">Unassigned (Null)</option>` + globalBuildings.map(b => `<option value="${b.id}">${b.building_code} — ${b.address_line_1.split(',')[0]}</option>`).join('');
+    
+    profiles.forEach(p => {
+      const nameStr = p.first_name || 'User'; 
+      const emailStr = p.email || (p.memberstack_id ? p.memberstack_id.substring(0,8) : 'Unknown'); 
+      const roleDisabled = currentUserRole !== 'admin' ? 'disabled title="Only Admins can modify roles"' : '';
+      
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="font-weight: 500;">${nameStr}</td>
+        <td style="color:var(--muted-foreground); font-size:11px;">${emailStr}</td>
+        <td>
+          <select class="control-select" data-pid="${p.id}" data-type="role" style="padding: 0.25rem;" ${roleDisabled}>
+            <option value="client" ${p.role === 'client' ? 'selected' : ''}>Client</option>
+            <option value="demo" ${p.role === 'demo' ? 'selected' : ''}>Demo</option>
+            <option value="operator" ${p.role === 'operator' ? 'selected' : ''}>Operator</option>
+            <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option>
+            <option value="suspended" ${p.role === 'suspended' ? 'selected' : ''}>Suspended</option>
+          </select>
+        </td>
+        <td>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <select class="control-select" data-pid="${p.id}" data-type="building" style="padding: 0.25rem; flex:1;">${bOptions}</select>
+            <button type="button" class="btn-delete-user" style="background:transparent; border:none; color:var(--status-review); cursor:pointer; padding:0.25rem;" title="Delete User DB Profile">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        </td>
+      `;
+      
+      if (p.building_id) { const bSelect = tr.querySelector(`select[data-type="building"]`); if(bSelect) bSelect.value = p.building_id; }
+      
+      tr.querySelectorAll('select').forEach(sel => { 
+        sel.addEventListener('change', async (e) => { 
+          e.target.style.borderColor = 'var(--status-stable)'; 
+          const payload = {}; 
+          if (e.target.dataset.type === 'role') payload.role = e.target.value; 
+          if (e.target.dataset.type === 'building') payload.building_id = e.target.value || null; 
+          await supabase.from('profiles').update(payload).eq('id', e.target.dataset.pid); 
+          setTimeout(() => e.target.style.borderColor = 'var(--border)', 500); 
+        }); 
+      }); 
+
+      // DELETE USER LOGIC
+      tr.querySelector('.btn-delete-user').addEventListener('click', async () => {
+        const confirmDel = confirm(`Are you sure you want to delete ${emailStr}? This removes their database connection. (You must also delete them in Memberstack to revoke login ability).`);
+        if (confirmDel) {
+          const { error } = await supabase.from('profiles').delete().eq('id', p.id);
+          if (!error) {
+            showToast('User profile deleted');
+            openUsersModal(); // Refresh the list
+          } else {
+            showToast('Failed to delete user', 'error');
+          }
+        }
+      });
+
+      DOM.usersTableBody.appendChild(tr);
+    });
+  };
+
+  const generateStatusOptions = (currentStatus) => { const options = ['unknown', 'measured', 'stable', 'risk', 'review']; return options.map(opt => `<option value="${opt}" ${opt === currentStatus ? 'selected' : ''}>${opt === 'risk' ? 'At Risk' : opt === 'review' ? 'Review Required' : opt.charAt(0).toUpperCase() + opt.slice(1)}</option>`).join(''); };
+
+  const autoSaveData = async (table, id, payload, elementToFlash) => {
+    if (!id || id === 'new') return; 
+    if(elementToFlash) elementToFlash.classList.add('saving');
+    await supabase.from(table).update(payload).eq('id', id);
+    if(elementToFlash) setTimeout(() => elementToFlash.classList.remove('saving'), 500);
+  };
+
+  const renderTelemetryEditor = (measurements) => {
+    if(!DOM.telemetryContainer) return; DOM.telemetryContainer.innerHTML = '';
+    ['ENVELOPE', 'U-VALUE', 'MOISTURE', 'CO2', 'READINESS', 'PRIORITY', 'ACH50', 'ELA', 'THERMAL_BRIDGE'].forEach(code => {
+      const m = measurements.find(x => x.measurement_points?.element_code === code); if (!m) return;
+      const cardHTML = `<div class="card-surface" id="card-${m.id}"><div class="card-header"><div class="card-title">${code.replace(/-/g, ' ')} Metric</div><span class="status-badge status-${m.status_flag}"><span class="badge-dot"></span>${m.status_flag}</span></div><div class="metrics-input-grid"><select class="control-select" data-table="measurements" data-id="${m.id}" data-col="status_flag">${generateStatusOptions(m.status_flag)}</select><input class="control-input" value="${m.value}" data-table="measurements" data-id="${m.id}" data-col="value"></div><textarea rows="2" class="control-textarea" data-table="measurements" data-id="${m.id}" data-col="client_facing_wording">${m.client_facing_wording || ''}</textarea></div>`;
+      DOM.telemetryContainer.insertAdjacentHTML('beforeend', cardHTML);
+    });
+    DOM.telemetryContainer.querySelectorAll('input:not([disabled]), select, textarea').forEach(input => { input.addEventListener('change', (e) => { const p = {}; p[e.target.getAttribute('data-col')] = e.target.value; autoSaveData(e.target.getAttribute('data-table'), e.target.getAttribute('data-id'), p, e.target.closest('.card-surface')); }); });
+  };
+
+  const renderTwinEditor = (rooms, measurements) => {
+    if(!DOM.twinNodesContainer) return; DOM.twinNodesContainer.innerHTML = '';
+    rooms.forEach(room => {
+      const roomMs = measurements.filter(x => x.room_id === room.id || (x.measurement_points && x.measurement_points.room_id === room.id));
+      const overallM = roomMs.find(x => x.status_flag === 'risk' || x.status_flag === 'review') || roomMs[0] || { status_flag: 'unknown', id: 'new' };
+      const getValInput = (code) => { let sm = roomMs.find(x => x.measurement_points?.element_code === code); if(!sm && code === 'RH') sm = roomMs.find(x => x.measurement_points?.element_code === 'MOISTURE'); if(!sm) return `<input class="control-input tabular" disabled placeholder="-" title="No sensor assigned">`; return `<input step="any" class="control-input tabular" type="number" value="${sm.value}" data-table="measurements" data-id="${sm.id}" data-col="value">`; };
+      const cardHTML = `<div class="card-surface" id="card-${room.id}"><div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">${room.room_name_current}<select class="control-select" style="width: auto; padding: 0.25rem;" data-table="measurements" data-id="${overallM.id}" data-col="status_flag">${generateStatusOptions(overallM.status_flag)}</select></div><div class="node-input-grid"><label><div class="eyebrow" style="margin-bottom: 0.25rem;">RH%</div>${getValInput('RH')}</label><label><div class="eyebrow" style="margin-bottom: 0.25rem;">CO₂</div>${getValInput('CO2')}</label><label><div class="eyebrow" style="margin-bottom: 0.25rem;">VOC</div>${getValInput('VOC')}</label></div><textarea rows="2" class="control-textarea" data-table="rooms" data-id="${room.id}" data-col="notes" placeholder="Analyst Notes for this room...">${room.notes || ''}</textarea></div>`;
+      DOM.twinNodesContainer.insertAdjacentHTML('beforeend', cardHTML);
+    });
+    DOM.twinNodesContainer.querySelectorAll('input:not([disabled]), select, textarea').forEach(input => { input.addEventListener('change', (e) => { const p = {}; p[e.target.getAttribute('data-col')] = e.target.value; autoSaveData(e.target.getAttribute('data-table'), e.target.getAttribute('data-id'), p, e.target.closest('.card-surface')); }); });
+  };
+
+  const renderPathwayEditor = (scenarios) => {
+    if(!DOM.pathwayContainer) return; DOM.pathwayContainer.innerHTML = '';
+    scenarios.forEach(scen => {
+      const cardHTML = `<div class="pathway-row" id="row-${scen.id}"><div class="pathway-title"><span class="font-mono text-muted-foreground" style="font-size: 10px; text-transform: uppercase; letter-spacing: var(--tracking-widest); margin-right: 0.5rem;">Phase 0${scen.phase}</span>${scen.title}</div><select class="control-select" data-table="upgrade_scenarios" data-id="${scen.id}" data-col="status"><option value="completed" ${scen.status === 'completed' ? 'selected' : ''}>Completed</option><option value="in-progress" ${scen.status === 'in-progress' ? 'selected' : ''}>In Progress</option><option value="locked" ${scen.status === 'locked' ? 'selected' : ''}>Locked Phase</option></select></div>`;
+      DOM.pathwayContainer.insertAdjacentHTML('beforeend', cardHTML);
+    });
+    DOM.pathwayContainer.querySelectorAll('select').forEach(input => { input.addEventListener('change', (e) => { const p = {}; p[e.target.getAttribute('data-col')] = e.target.value; autoSaveData(e.target.getAttribute('data-table'), e.target.getAttribute('data-id'), p, e.target.closest('.pathway-row')); }); });
+  };
+
+  const handleReportUpload = async (e) => {
+    if (!currentBuildingId) return;
+    const file = e.target.files[0]; if (!file) return;
+    if(DOM.uploadStatusText) DOM.uploadStatusText.textContent = `Uploading ${file.name}...`;
+    const targetRoomId = DOM.uploadTargetRoom ? DOM.uploadTargetRoom.value : null;
+    const fileExt = file.name.split('.').pop(); const fileName = `${currentBuildingId}-${Date.now()}.${fileExt}`;
+    const { error: uploadErr } = await supabase.storage.from('reports').upload(fileName, file);
+    if (uploadErr) { if(DOM.uploadStatusText) DOM.uploadStatusText.textContent = `Drop or click to upload`; showToast('Upload failed', 'error'); return; }
+    const { data: urlData } = supabase.storage.from('reports').getPublicUrl(fileName);
+    if (targetRoomId && fileExt.match(/(jpg|jpeg|png|webp|gif)$/i)) { await supabase.from('evidence_assets').insert([{ building_id: currentBuildingId, room_id: targetRoomId, file_name: file.name, file_url: urlData.publicUrl }]); } else { await supabase.from('reports').insert([{ building_id: currentBuildingId, report_title: file.name, report_url: urlData.publicUrl, report_type: fileExt.toUpperCase(), client_visible: true }]); }
+    if(DOM.uploadStatusText) DOM.uploadStatusText.textContent = `Drop or click to upload`; if(DOM.reportInput) DOM.reportInput.value = ''; showToast('Report uploaded successfully'); loadAssetContext(currentBuildingId);
+  };
+
+  const init = async () => {
+    toggleSkeletonState(true); initUIEvents();
+    
+    const pageTitle = document.querySelector('.hero-title'); if (pageTitle) pageTitle.textContent = "Operator Data Controller";
+    const sectionTitles = document.querySelectorAll('.section-title'); if (sectionTitles[0]) sectionTitles[0].textContent = "Property Selection"; if (sectionTitles[1]) sectionTitles[1].textContent = "Measurement Data Editor";
+    const emptyTitle = document.querySelector('#empty-state-container h3'); if (emptyTitle) emptyTitle.textContent = "Home Record Not Initialized";
+    if (DOM.btnInitializeAsset) DOM.btnInitializeAsset.textContent = "Generate Home Performance Baseline";
+
+    if (!window.supabase) return; supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    try { const profile = await authenticateAdmin(); if (profile) await loadGlobalAssets(); } catch (error) { console.error(error); window.location.href = '/login'; }
+  };
+  return { init };
+})();
+
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', JoeBuildsAdmin.init); } else { JoeBuildsAdmin.init(); }
