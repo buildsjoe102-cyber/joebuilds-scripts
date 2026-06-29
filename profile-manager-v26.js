@@ -293,11 +293,14 @@ const JoeBuildsProfileManager = (() => {
     fixOperatorDropdown();
 
     if (window.supabase) {
-      // 1. Get the secure JWT Token from Memberstack
+// SECURE TOKEN HANDSHAKE VIA CUSTOM FIELD
       let supabaseToken = '';
-      try {
-        supabaseToken = await window.$memberstackDom.getProviderToken('supabase');
-      } catch(e) { console.warn("No Supabase token generated"); }
+      try { 
+        const memberReq = await window.$memberstackDom.getCurrentMember();
+        if (memberReq && memberReq.data && memberReq.data.customFields && memberReq.data.customFields['supabase-jwt']) {
+            supabaseToken = memberReq.data.customFields['supabase-jwt'];
+        }
+      } catch(e) { console.warn("No Supabase token found"); }
 
       // 2. Initialize Supabase with the Publishable Key AND the Token
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
